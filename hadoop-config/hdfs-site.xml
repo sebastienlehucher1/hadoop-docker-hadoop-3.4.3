@@ -1,0 +1,32 @@
+<configuration>
+    <!-- Facteur de réplication -->
+    <!-- Dans Docker, on n'a souvent qu'un seul DataNode. On met donc 1. -->
+    <property>
+        <name>dfs.replication</name>
+        <value>1</value>
+    </property>
+
+    <!-- Emplacement des données du NameNode -->
+    <property>
+        <name>dfs.namenode.name.dir</name>
+        <value>file:///hadoop/dfs/name</value>
+    </property>
+
+    <!-- Emplacement des données du DataNode -->
+    <property>
+        <name>dfs.datanode.data.dir</name>
+        <value>file:///hadoop/dfs/data</value>
+    </property>
+
+    <!-- Permissions (Important pour éviter les blocages en dev) -->
+    <property>
+        <name>dfs.permissions.enabled</name>
+        <value>false</value>
+    </property>
+
+    <!-- HTTP Addresses (Web UI) -->
+    <property>
+        <name>dfs.namenode.http-address</name>
+        <value>0.0.0.0:9870</value>
+    </property>
+</configuration>

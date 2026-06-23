@@ -1,0 +1,24 @@
+<configuration>
+    <!-- Adresse du NameNode (HDFS) -->    
+    <property>
+        <name>fs.defaultFS</name>
+        <value>hdfs://namenode:8020</value>
+    </property>
+
+    <!-- Dossier temporaire pour Hadoop -->
+    <property>
+        <name>hadoop.tmp.dir</name>
+        <value>/tmp/hadoop-${user.name}</value>
+    </property>
+
+    <!-- Configuration des accès Proxy (Nécessaire pour Hive) -->
+    <!-- Ces paramètres permettent à l'utilisateur 'hive' d'agir au nom d'autres utilisateurs -->
+    <property>
+        <name>hadoop.proxyuser.hive.hosts</name>
+        <value>*</value>
+    </property>
+    <property>
+        <name>hadoop.proxyuser.hive.groups</name>
+        <value>*</value>
+    </property>
+</configuration>
