@@ -24,10 +24,18 @@ services:
       dockerfile: Dockerfile.hadoop
     container_name: namenode
     hostname: namenode
-    command: ["bash", "-c", "sudo mkdir -p /hadoop/dfs/name && sudo chown -R hadoop:users /hadoop/dfs/name && if [ ! -d /hadoop/dfs/name/current\
-        \ ]; then hdfs namenode -format -force; fi && hdfs namenode & sleep 5 && /namenode-init.sh &&\
-        \ wait"
-    ]    
+    command: >
+      bash -c "
+      sudo mkdir -p /hadoop/dfs/name &&
+      sudo chown -R hadoop:users /hadoop/dfs/name &&
+      if [ ! -d /hadoop/dfs/name/current ]; then
+        hdfs namenode -format -force -nonInteractive;
+      fi &&
+      hdfs namenode &
+      sleep 10 &&
+      /namenode-init.sh &&
+      wait
+      "   
     ports:
       - 9870:9870   # HDFS UI
       - 8020:8020   # HDFS RPC
@@ -36,14 +44,17 @@ services:
     volumes:
       - .:/workspace
       - ./api_key.txt:/run/secrets/api_key:ro
-      - ./hadoop-config:/etc/hadoop/conf
+      - ./config/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
+      - ./config/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
+      - ./config/yarn-site.xml:/opt/hadoop/etc/hadoop/yarn-site.xml:ro
+      - ./config/mapred-site.xml:/opt/hadoop/etc/hadoop/mapred-site.xml:ro
       - ./namenode-init.sh:/namenode-init.sh
       - ./scripts:/opt/hadoop/scripts
       - namenode_data:/hadoop/dfs/name
       - tez-share:/tez
     healthcheck:
-      test: ["CMD-SHELL", "hdfs dfsadmin -report | grep -q 'Live datanodes (1)'"]
-      interval: 30s
+      test: ["CMD-SHELL", "hdfs dfs -test -e / || hdfs dfs -ls / > /dev/null 2>&1 || exit 1"]
+      interval: 20s
       timeout: 10s
       retries: 10
       start_period: 60s
@@ -61,13 +72,17 @@ services:
       - ./config
     ports:
       - 9864:9864
-    volumes:
-      - datanode_data:/hadoop/dfs/data
     depends_on:
       namenode:
-        condition: service_healthy
+        condition: service_started
+    volumes:
+      - datanode_data:/hadoop/dfs/data
+      - ./config/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
+      - ./config/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
+      - ./config/yarn-site.xml:/opt/hadoop/etc/hadoop/yarn-site.xml:ro
+      - ./config/mapred-site.xml:/opt/hadoop/etc/hadoop/mapred-site.xml:ro
     healthcheck:
-      test: ["CMD-SHELL", "jps | grep -q DataNode"]
+      test: ["CMD-SHELL", "jps | grep -q DataNode && hdfs dfsadmin -report | grep -q 'Live datanodes'"]
       interval: 20s
       timeout: 10s
       retries: 10
@@ -84,11 +99,15 @@ services:
     ports:
         - 8088:8088
     env_file:
-      - ./config
+      - ./config    
+    depends_on:
+      namenode:
+        condition: service_started
     volumes:
-      - ./test.sh:/opt/test.sh
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8088/ws/v1/cluster/info >/dev/null"]
+      - ./config/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
+      - ./config/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
+      - ./config/yarn-site.xml:/opt/hadoop/etc/hadoop/yarn-site.xml:ro
+      - ./config/mapred-site.xml:/opt/hadoop/etc/hadoop/mapred-site.xml:ro   
     networks:
       - hadoop
 
@@ -100,9 +119,17 @@ services:
     hostname: nodemanager
     command: ["yarn", "nodemanager"]
     env_file:
-      - ./config
-    healthcheck:
-      test: ["CMD-SHELL", "jps | grep -q NodeManager"]
+      - ./config    
+    depends_on:
+      namenode:
+        condition: service_started
+      resourcemanager:
+        condition: service_started
+    volumes:      
+      - ./config/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
+      - ./config/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
+      - ./config/yarn-site.xml:/opt/hadoop/etc/hadoop/yarn-site.xml:ro
+      - ./config/mapred-site.xml:/opt/hadoop/etc/hadoop/mapred-site.xml:ro   
     networks:
       - hadoop
 
@@ -151,14 +178,9 @@ services:
       hive-postgres:
         condition: service_healthy
     volumes:
-      - ./conf:/opt/hive/conf
-      - ./hadoop-config:/etc/hadoop/conf      
-      - ./start-metastore.sh:/start-metastore.sh
-    healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 9083"]
-      interval: 15s
-      timeout: 5s
-      retries: 20
+      - ./conf:/opt/hive/conf:ro
+      - ./hadoop-config:/etc/hadoop/conf:ro      
+      - ./start-metastore.sh:/start-metastore.sh    
     networks:
       - hadoop 
 
@@ -187,16 +209,16 @@ services:
       datanode:
         condition: service_healthy
       nodemanager:
-        condition: service_healthy
+        condition: service_started
       resourcemanager:
-        condition: service_healthy
+        condition: service_started
       hive-postgres:
         condition: service_healthy
       hive-metastore:
-        condition: service_healthy
+        condition: service_started
     volumes:
-      - ./conf:/opt/hive/conf
-      - ./hadoop-config:/etc/hadoop/conf
+      - ./conf:/opt/hive/conf:ro
+      - ./hadoop-config:/etc/hadoop/conf:ro
       - ./logs/hive-server:/opt/hive/logs
       - ./start-hiveserver2.sh:/start-hiveserver2.sh
       - tez-share:/tez
