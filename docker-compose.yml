@@ -26,28 +26,33 @@ services:
     hostname: namenode
     command: >
       bash -c "
-      sudo mkdir -p /hadoop/dfs/name &&
-      sudo chown -R hadoop:users /hadoop/dfs/name &&
-      if [ ! -d /hadoop/dfs/name/current ]; then
+      mkdir -p /hadoop/dfs/name &&
+      chown -R hadoop:users /hadoop/dfs/name &&
+      if [ ! -f /hadoop/dfs/name/current/VERSION ]; then
         hdfs namenode -format -force -nonInteractive;
       fi &&
       hdfs namenode &
-      sleep 10 &&
+      until hdfs dfs -ls / >/dev/null 2>&1; do
+          sleep 2
+      done &&
       /namenode-init.sh &&
       wait
       "   
     ports:
       - 9870:9870   # HDFS UI
-      - 8020:8020   # HDFS RPC
+      - 8020:8020   # HDFS RPC     
     env_file:
-      - ./config      
+      - ./config
+    environment:
+          ENSURE_NAMENODE_DIR: "/hadoop/dfs/name"
+    secrets:
+      - api_key      
     volumes:
-      - .:/workspace
-      - ./api_key.txt:/run/secrets/api_key:ro
-      - ./config/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
-      - ./config/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
-      - ./config/yarn-site.xml:/opt/hadoop/etc/hadoop/yarn-site.xml:ro
-      - ./config/mapred-site.xml:/opt/hadoop/etc/hadoop/mapred-site.xml:ro
+      - ..:/workspace      
+      - ./hadoop-config/core-site.xml:/etc/hadoop/conf/core-site.xml:ro
+      - ./hadoop-config/hdfs-site.xml:/etc/hadoop/conf/hdfs-site.xml:ro
+      - ./hadoop-config/yarn-site.xml:/etc/hadoop/conf/yarn-site.xml:ro
+      - ./hadoop-config/mapred-site.xml:/etc/hadoop/conf/mapred-site.xml:ro  
       - ./namenode-init.sh:/namenode-init.sh
       - ./scripts:/opt/hadoop/scripts
       - namenode_data:/hadoop/dfs/name
@@ -67,22 +72,22 @@ services:
       dockerfile: Dockerfile.hadoop
     container_name: datanode
     hostname: datanode
-    command: ["bash", "-c", "sudo mkdir -p /hadoop/dfs/data && sudo chown -R hadoop:users /hadoop/dfs/data && hdfs datanode"]    
+    command: ["bash", "-c", "mkdir -p /hadoop/dfs/data && chown -R hadoop:users /hadoop/dfs/data && hdfs datanode"]    
     env_file:
       - ./config
     ports:
       - 9864:9864
     depends_on:
       namenode:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - datanode_data:/hadoop/dfs/data
-      - ./config/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
-      - ./config/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
-      - ./config/yarn-site.xml:/opt/hadoop/etc/hadoop/yarn-site.xml:ro
-      - ./config/mapred-site.xml:/opt/hadoop/etc/hadoop/mapred-site.xml:ro
+      - ./hadoop-config/core-site.xml:/etc/hadoop/conf/core-site.xml:ro
+      - ./hadoop-config/hdfs-site.xml:/etc/hadoop/conf/hdfs-site.xml:ro
+      - ./hadoop-config/yarn-site.xml:/etc/hadoop/conf/yarn-site.xml:ro
+      - ./hadoop-config/mapred-site.xml:/etc/hadoop/conf/mapred-site.xml:ro  
     healthcheck:
-      test: ["CMD-SHELL", "jps | grep -q DataNode && hdfs dfsadmin -report | grep -q 'Live datanodes'"]
+      test: ["CMD-SHELL", "hdfs dfsadmin -report | grep -A5 'Live datanodes' | grep -q datanode"]
       interval: 20s
       timeout: 10s
       retries: 10
@@ -102,12 +107,12 @@ services:
       - ./config    
     depends_on:
       namenode:
-        condition: service_started
+        condition: service_healthy
     volumes:
-      - ./config/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
-      - ./config/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
-      - ./config/yarn-site.xml:/opt/hadoop/etc/hadoop/yarn-site.xml:ro
-      - ./config/mapred-site.xml:/opt/hadoop/etc/hadoop/mapred-site.xml:ro   
+      - ./hadoop-config/core-site.xml:/etc/hadoop/conf/core-site.xml:ro
+      - ./hadoop-config/hdfs-site.xml:/etc/hadoop/conf/hdfs-site.xml:ro
+      - ./hadoop-config/yarn-site.xml:/etc/hadoop/conf/yarn-site.xml:ro
+      - ./hadoop-config/mapred-site.xml:/etc/hadoop/conf/mapred-site.xml:ro    
     networks:
       - hadoop
 
@@ -122,14 +127,14 @@ services:
       - ./config    
     depends_on:
       namenode:
-        condition: service_started
+        condition: service_healthy
       resourcemanager:
         condition: service_started
     volumes:      
-      - ./config/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
-      - ./config/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
-      - ./config/yarn-site.xml:/opt/hadoop/etc/hadoop/yarn-site.xml:ro
-      - ./config/mapred-site.xml:/opt/hadoop/etc/hadoop/mapred-site.xml:ro   
+      - ./hadoop-config/core-site.xml:/etc/hadoop/conf/core-site.xml:ro
+      - ./hadoop-config/hdfs-site.xml:/etc/hadoop/conf/hdfs-site.xml:ro
+      - ./hadoop-config/yarn-site.xml:/etc/hadoop/conf/yarn-site.xml:ro
+      - ./hadoop-config/mapred-site.xml:/etc/hadoop/conf/mapred-site.xml:ro   
     networks:
       - hadoop
 
@@ -137,7 +142,8 @@ services:
     image: postgres:14
     container_name: hive-postgres
     hostname: hive-postgres
-    env_file: .env
+    env_file: 
+      - .env
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -161,15 +167,15 @@ services:
     container_name: hive-metastore
     hostname: hive-metastore
     command: ["/bin/bash", "/start-metastore.sh"]
-    env_file: .env
+    env_file: 
+      - .env
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-      SERVICE_NAME: metastore
-      HADOOP_CONF_DIR: /etc/hadoop/conf
-      HIVE_CONF_DIR: /opt/hive/conf     
-      DB_DRIVER: postgres   
+      - HADOOP_CONF_DIR=/etc/hadoop/conf
+      - HIVE_CONF_DIR=/opt/hive/conf        
+      - HIVE_DATABASE_USER=${POSTGRES_USER}
+      - HIVE_DATABASE_PASSWORD=${POSTGRES_PASSWORD}        
+      - SERVICE_NAME=metastore
+      - DB_DRIVER=postgres 
     ports:
       - 9083:9083
     depends_on:
@@ -190,16 +196,19 @@ services:
       dockerfile: Dockerfile.hive
     container_name: hive-server
     hostname: hive-server
-    env_file: .env
+    env_file: 
+      - .env
     entrypoint: ["/bin/bash", "/start-hiveserver2.sh"]
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-      SERVICE_NAME: hiveserver2
-      HADOOP_CONF_DIR: /etc/hadoop/conf
-      HIVE_CONF_DIR: /opt/hive/conf     
-      DB_DRIVER: postgres      
+      - SERVICE_NAME=hiveserver2        
+      - DB_DRIVER=postgres
+      # Indispensable pour parler à HDFS
+      - HADOOP_CONF_DIR=/etc/hadoop/conf        
+      - HIVE_CONF_DIR=/opt/hive/conf
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:8020
+      # Pour mapper les credentials .env vers le XML
+      - HIVE_DATABASE_USER=${POSTGRES_USER}
+      - HIVE_DATABASE_PASSWORD=${POSTGRES_PASSWORD}  
     ports:
       - 10000:10000  # JDBC/Beeline
       - 10002:10002  # Web UI
@@ -217,13 +226,20 @@ services:
       hive-metastore:
         condition: service_started
     volumes:
-      - ./conf:/opt/hive/conf:ro
-      - ./hadoop-config:/etc/hadoop/conf:ro
-      - ./logs/hive-server:/opt/hive/logs
       - ./start-hiveserver2.sh:/start-hiveserver2.sh
       - tez-share:/tez
+      # Volume de configuration Hadoop (liaison HDFS)
+      - ./hadoop-config:/etc/hadoop/conf:ro
+      # Volume de configuration Hive (liaison Postgres)
+      - ./conf:/opt/hive/conf:ro
+      # Persistance des logs pour debug
+      - ./logs/hive-server:/opt/hive/logs  
     networks:
       - hadoop
+
+secrets:
+  api_key:
+    file: ./api_key.txt
 
 volumes:
   namenode_data:
@@ -232,6 +248,5 @@ volumes:
   tez-share:
 
 networks:
-  hadoop:
-    external: true
+  hadoop:    
     name: hadoop
